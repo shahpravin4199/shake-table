@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shake Table – Building Vibration Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #E9EEF1;
+    --steel: #23313F;
+    --steel-soft: #5A6B7B;
+    --concrete: #9AA5AD;
+    --orange: #F26B21;
+    --orange-deep: #C2410C;
+    --white: #FFFFFF;
+    --rule: rgba(35, 49, 63, 0.25);
+    --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    font-family: var(--font);
+    color: var(--steel);
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(rgba(35, 49, 63, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(35, 49, 63, 0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+    padding: 24px 16px 56px;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { margin-bottom: 18px; }
+  h1 { margin: 0; font-size: clamp(1.7rem, 6vw, 2.4rem); font-weight: 700; letter-spacing: -0.01em; }
+  .lede { margin: 6px 0 0; max-width: 60ch; color: var(--steel-soft); line-height: 1.45; }
+
+  .layout { display: grid; gap: 22px; }
+  @media (min-width: 880px) {
+    .layout { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+  }
+
+  .stage canvas {
+    display: block;
+    width: 100%;
+    background: var(--white);
+    border: 2px solid var(--steel);
+  }
+  #frameCanvas { height: 320px; border-bottom-width: 0; }
+  #plotCanvas { height: 170px; }
+  .caption { margin: 8px 0 0; font-size: 0.85rem; color: var(--steel-soft); }
+
+  .readouts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    margin-top: 14px;
+    border: 2px solid var(--steel);
+    background: var(--white);
+  }
+  .readouts div { padding: 10px 12px; border-right: 1px solid var(--rule); }
+  .readouts div:last-child { border-right: 0; }
+  .readouts dt { font-size: 0.8rem; color: var(--steel-soft); }
+  .readouts dd { margin: 2px 0 0; font-size: 1.35rem; font-weight: 700; }
+  .readouts dd small { font-size: 0.8rem; font-weight: 400; color: var(--steel-soft); }
+
+  .message {
+    margin: 14px 0 0;
+    padding: 10px 14px;
+    border-left: 5px solid var(--orange);
+    background: var(--white);
+    line-height: 1.45;
+    min-height: 3.4em;
+  }
+
+  .controls { border-top: 3px solid var(--steel); padding-top: 14px; }
+  .controls h2, .explain h2 { margin: 0 0 10px; font-size: 1.05rem; }
+  .row { margin-bottom: 16px; }
+  .row .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .row label { font-weight: 600; }
+  .row output { font-weight: 700; }
+  input[type="range"] { width: 100%; accent-color: var(--orange); height: 28px; }
+  .hint { margin: 0; font-size: 0.82rem; color: var(--steel-soft); }
+
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 2px solid var(--steel); background: var(--white); }
+  .seg button {
+    font: inherit; font-weight: 600; font-size: 0.88rem;
+    padding: 10px 4px; border: 0; border-right: 1px solid var(--rule);
+    background: transparent; color: var(--steel); cursor: pointer;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--steel); color: var(--white); }
+
+  .actions { display: flex; gap: 10px; margin: 14px 0 6px; }
+  .btn {
+    font: inherit; font-weight: 700; cursor: pointer;
+    padding: 12px 16px; border: 2px solid var(--steel);
+    background: var(--white); color: var(--steel);
+  }
+  .btn.primary { flex: 1; background: var(--orange); border-color: var(--steel); }
+  .btn:active { transform: translateY(1px); }
+  .btn.small { font-size: 0.82rem; padding: 6px 10px; margin-top: 6px; font-weight: 600; }
+
+  .explain { margin-top: 28px; border-top: 3px solid var(--steel); padding-top: 14px; display: grid; gap: 4px; }
+  details { border-bottom: 1px solid var(--rule); padding: 10px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 8px 0 0; line-height: 1.55; max-width: 70ch; }
+  .formula { font-weight: 700; padding: 8px 12px; background: var(--white); border: 1px solid var(--rule); display: inline-block; margin-top: 8px; }
+
+  .hidden { display: none; }
+  :focus-visible { outline: 3px solid var(--orange-deep); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Shake Table</h1>
+    <p class="lede">A one-storey building on a shake table. Change its weight and stiffness, then shake the ground and watch how it responds.</p>
+  </header>
+
+  <div class="layout">
+    <section class="stage" aria-label="Simulation">
+      <canvas id="frameCanvas" role="img" aria-label="Animated one-storey frame swaying on a shake table"></canvas>
+      <canvas id="plotCanvas" role="img" aria-label="Graph of the building's top displacement over the last 12 seconds"></canvas>
+      <p class="caption">Sway is exaggerated and the ground shake is not to scale. The graph shows the roof displacement over the last 12 seconds.</p>
+
+      <dl class="readouts">
+        <div><dt>Natural period</dt><dd><span id="outT">1.00</span> <small>s</small></dd></div>
+        <div><dt>Frequency</dt><dd><span id="outF">1.00</span> <small>Hz</small></dd></div>
+        <div><dt>Peak sway</dt><dd><span id="outPeak">0</span> <small>mm</small></dd></div>
+      </dl>
+      <p class="message" id="msg" aria-live="polite"></p>
+    </section>
+
+    <section class="controls" aria-label="Controls">
+      <h2>Building</h2>
+      <div class="row">
+        <div class="top"><label for="mass">Mass (roof weight)</label><output id="massOut">200 t</output></div>
+        <input id="mass" type="range" min="50" max="1000" step="10" value="200">
+        <p class="hint">Heavier roof: the block gets bigger and the building slows down.</p>
+      </div>
+      <div class="row">
+        <div class="top"><label for="stiff">Stiffness (all columns)</label><output id="stiffOut">8000 kN/m</output></div>
+        <input id="stiff" type="range" min="500" max="20000" step="100" value="8000">
+        <p class="hint">Stiffer columns: the columns get thicker and the building speeds up.</p>
+      </div>
+      <div class="row">
+        <div class="top"><label for="damp">Damping ratio</label><output id="dampOut">5 %</output></div>
+        <input id="damp" type="range" min="0" max="20" step="0.5" value="5">
+        <p class="hint">How quickly the shaking dies out.</p>
+      </div>
+
+      <h2>Ground motion</h2>
+      <div class="seg" role="group" aria-label="Ground motion type">
+        <button type="button" data-mode="free" aria-pressed="true">Free</button>
+        <button type="button" data-mode="harmonic" aria-pressed="false">Steady</button>
+        <button type="button" data-mode="pulse" aria-pressed="false">Pulse</button>
+      </div>
+
+      <div class="row hidden" id="teRow" style="margin-top:14px">
+        <div class="top"><label for="te" id="teLabel">Shaking period</label><output id="teOut">1.00 s</output></div>
+        <input id="te" type="range" min="0.1" max="5" step="0.01" value="1">
+        <button type="button" class="btn small" id="matchBtn">Match building period</button>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn primary" id="goBtn">Pull and release</button>
+        <button type="button" class="btn" id="resetBtn">Reset</button>
+      </div>
+      <p class="hint" id="modeHint"></p>
+    </section>
+  </div>
+
+  <section class="explain" aria-label="Explanation">
+    <h2>How it works</h2>
+    <details open>
+      <summary>Why weight and stiffness set the period</summary>
+      <p>Think of a loaded bus on its springs: the heavier it is, the more slowly it bounces. Think of a diving board: the stiffer it is, the faster it springs back. A building behaves the same way, and one simple formula captures both effects.</p>
+      <span class="formula" id="formula">T = 2π √(m / k)</span>
+      <p>With mass in tonnes and stiffness in kN/m, the answer comes out in seconds. Quadruple the mass and the period doubles, because of the square root.</p>
+    </details>
+    <details>
+      <summary>Resonance: matching the push to the swing</summary>
+      <p>Pushing a child on a swing works best when each push is timed to the swing’s own rhythm. In Steady mode, set the shaking period equal to the building period and the sway keeps building up. Damping is what finally limits it, so try lowering damping to 0 and see the difference.</p>
+    </details>
+    <details>
+      <summary>Why near-fault pulses matter</summary>
+      <p>Ground motions close to a fault often contain one strong velocity pulse with a definite period. In Pulse mode, fire a single-cycle pulse and compare a pulse period close to the building period with one much shorter or longer. This ratio of pulse period to structure period is a key idea when comparing near-fault and far-fault records for fragility analysis.</p>
+    </details>
+    <details>
+      <summary>What the model leaves out</summary>
+      <p>This is a single-degree-of-freedom model: one lumped mass on one spring with viscous damping, staying elastic. Real structures have many modes, cracking, yielding and soil interaction. It is a starting point for the physics, not a design tool.</p>
+    </details>
+  </section>
+</div>
+
+<script>
+(function () {
+  var G = 9.81;
+  var PGA = 0.25 * G;        // peak ground acceleration used for shaking (m/s^2)
+  var STOREY_H = 3;          // assumed storey height for the drift readout (m)
+  var WINDOW = 12;           // seconds shown on the graph
+
+  function $(id) { return document.getElementById(id); }
+
+  var s = { m: 200, k: 8000, zeta: 0.05, mode: "free", Te: 1.0 };
+  var u = 0.05, v = 0;       // relative displacement (m) and velocity (m/s)
+  var t = 0, peak = 0;
+  var shaking = false, shakeT0 = 0, pulseT0 = null;
+  var hist = [];
+  var yMax = 0.06;
+
+  var cvFrame = $("frameCanvas"), cvPlot = $("plotCanvas");
+  var massIn = $("mass"), stiffIn = $("stiff"), dampIn = $("damp"), teIn = $("te");
+  var goBtn = $("goBtn");
+
+  function omega() { return Math.sqrt(s.k / s.m); }   // tonnes and kN/m cancel to 1/s^2
+  function period() { return 2 * Math.PI / omega(); }
+  function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+
+  // ground acceleration at time "time"
+  function ag(time) {
+    if (s.mode === "harmonic" && shaking) {
+      return PGA * Math.sin(2 * Math.PI * (time - shakeT0) / s.Te);
+    }
+    if (s.mode === "pulse" && pulseT0 !== null) {
+      var x = time - pulseT0;
+      if (x >= 0 && x <= s.Te) return PGA * Math.sin(2 * Math.PI * x / s.Te);
+    }
+    return 0;
+  }
+
+  // equation of motion:  u'' + 2*zeta*w*u' + w^2*u = -ag(t)
+  function accel(uu, vv, time) {
+    var w = omega();
+    return -2 * s.zeta * w * vv - w * w * uu - ag(time);
+  }
+
+  // one RK4 step of size h
+  function step(h) {
+    var k1u = v,                 k1v = accel(u, v, t);
+    var k2u = v + 0.5 * h * k1v, k2v = accel(u + 0.5 * h * k1u, v + 0.5 * h * k1v, t + 0.5 * h);
+    var k3u = v + 0.5 * h * k2v, k3v = accel(u + 0.5 * h * k2u, v + 0.5 * h * k2v, t + 0.5 * h);
+    var k4u = v + h * k3v,       k4v = accel(u + h * k3u, v + h * k3v, t + h);
+    u += (h / 6) * (k1u + 2 * k2u + 2 * k3u + k4u);
+    v += (h / 6) * (k1v + 2 * k2v + 2 * k3v + k4v);
+    t += h;
+    if (Math.abs(u) > peak) peak = Math.abs(u);
+  }
+
+  function fit(c) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    var ctx = c.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, c.clientWidth, c.clientHeight);
+    return ctx;
+  }
+
+  function drawFrame() {
+    var ctx = fit(cvFrame);
+    var W = cvFrame.clientWidth, H = cvFrame.clientHeight;
+    var groundY = H - 50;
+    var bodyW = Math.min(230, W * 0.6);
+    var hgt = Math.min(170, H - 150);
+    var cx = W / 2;
+    var gShift = 7 * ag(t) / PGA;                       // visual cue only
+    var limit = Math.min(110, (W - bodyW) / 2 - 14);
+    var top = clamp(u * 400, -limit, limit);            // 400 px per metre of sway
+
+    // ground slab
+    ctx.fillStyle = "#9AA5AD";
+    ctx.fillRect(12 + gShift, groundY, W - 24, 16);
+    ctx.strokeStyle = "#23313F";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(12 + gShift, groundY, W - 24, 16);
+    ctx.lineWidth = 1.5;
+    for (var x = 20; x < W - 20; x += 16) {
+      ctx.beginPath();
+      ctx.moveTo(x + gShift, groundY + 16);
+      ctx.lineTo(x - 10 + gShift, groundY + 30);
+      ctx.stroke();
+    }
+
+    // rest position line
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(35,49,63,0.4)";
+    ctx.beginPath();
+    ctx.moveTo(cx + gShift, groundY);
+    ctx.lineTo(cx + gShift, 14);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // columns (S-shaped bend, fixed at both ends)
+    var colW = 5 + (s.k / 20000) * 12;
+    ctx.strokeStyle = "#23313F";
+    ctx.lineWidth = colW;
+    ctx.lineCap = "butt";
+    [-1, 1].forEach(function (side) {
+      var xb = cx + side * bodyW / 2 + gShift;
+      ctx.beginPath();
+      ctx.moveTo(xb, groundY);
+      ctx.bezierCurveTo(xb, groundY - hgt / 2, xb + top, groundY - hgt / 2, xb + top, groundY - hgt);
+      ctx.stroke();
+    });
+
+    // roof mass: block grows with mass
+    var blockH = 20 + (s.m / 1000) * 40;
+    var bx = cx - bodyW / 2 - 16 + gShift + top;
+    var by = groundY - hgt - blockH + 8;
+    ctx.fillStyle = "#F26B21";
+    ctx.fillRect(bx, by, bodyW + 32, blockH);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#23313F";
+    ctx.strokeRect(bx, by, bodyW + 32, blockH);
+    ctx.fillStyle = "#23313F";
+    ctx.font = "700 14px " + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("m = " + s.m + " t", bx + (bodyW + 32) / 2, by + blockH / 2);
+  }
+
+  function drawPlot() {
+    var ctx = fit(cvPlot);
+    var W = cvPlot.clientWidth, H = cvPlot.clientHeight;
+    var mid = H / 2;
+    var t0 = t - WINDOW;
+
+    var m = 0.02;
+    for (var i = 0; i < hist.length; i++) { var a = Math.abs(hist[i].u); if (a > m) m = a; }
+    yMax += (m * 1.15 - yMax) * 0.15;
+    var halfH = H / 2 - 16;
+
+    // time grid every 2 s
+    ctx.font = "12px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillStyle = "#5A6B7B";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.strokeStyle = "rgba(35,49,63,0.12)";
+    ctx.lineWidth = 1;
+    for (var g = Math.ceil(t0 / 2) * 2; g <= t; g += 2) {
+      var gx = (g - t0) / WINDOW * W;
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+    }
+
+    // zero line
+    ctx.strokeStyle = "rgba(35,49,63,0.5)";
+    ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W, mid); ctx.stroke();
+
+    // trace
+    ctx.strokeStyle = "#C2410C";
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (var j = 0; j < hist.length; j++) {
+      var px = (hist[j].t - t0) / WINDOW * W;
+      var py = mid - hist[j].u / yMax * halfH;
+      if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // scale labels
+    ctx.fillStyle = "#5A6B7B";
+    ctx.fillText("+" + (yMax * 1000).toFixed(0) + " mm", 6, 4);
+    ctx.textBaseline = "bottom";
+    ctx.fillText("−" + (yMax * 1000).toFixed(0) + " mm", 6, H - 4);
+    ctx.textAlign = "right";
+    ctx.fillText("now", W - 6, H - 4);
+  }
+
+  function ratioMessage() {
+    var T = period();
+    if (s.mode === "free") {
+      return "Free vibration: the building rings at its own natural period (" + T.toFixed(2) + " s) and the motion fades with damping.";
+    }
+    var r = s.Te / T;
+    var what = s.mode === "pulse" ? "Pulse period" : "Shaking period";
+    var txt = what + " ÷ building period = " + r.toFixed(2) + ". ";
+    if (r > 0.85 && r < 1.15) {
+      txt += s.mode === "pulse"
+        ? "A close match: the pulse arrives in step with the building’s own rhythm, so the sway is large."
+        : "Resonance: every push adds to the last one, so the sway keeps growing until damping balances it.";
+    } else if (r < 0.5) {
+      txt += "Too fast for the building to follow, so it barely moves.";
+    } else if (r > 2) {
+      txt += "Slow enough that the building simply moves along with the ground.";
+    } else {
+      txt += "Partly in step with the building.";
+    }
+    return txt;
+  }
+
+  function updateText() {
+    var T = period();
+    $("outT").textContent = T.toFixed(2);
+    $("outF").textContent = (1 / T).toFixed(2);
+    $("outPeak").textContent = (peak * 1000).toFixed(0);
+    $("massOut").textContent = s.m + " t";
+    $("stiffOut").textContent = s.k + " kN/m";
+    $("dampOut").textContent = (s.zeta * 100) + " %";
+    $("teOut").textContent = s.Te.toFixed(2) + " s";
+    $("formula").textContent = "T = 2π √(" + s.m + " / " + s.k + ") = " + T.toFixed(2) + " s";
+    $("msg").textContent = ratioMessage();
+  }
+
+  function setModeUI() {
+    document.querySelectorAll(".seg button").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-mode") === s.mode ? "true" : "false");
+    });
+    var showTe = s.mode !== "free";
+    $("teRow").classList.toggle("hidden", !showTe);
+    $("teLabel").textContent = s.mode === "pulse" ? "Pulse period" : "Shaking period";
+    if (s.mode === "free") {
+      goBtn.textContent = "Pull and release";
+      $("modeHint").textContent = "Pulls the roof sideways, then lets go.";
+    } else if (s.mode === "harmonic") {
+      goBtn.textContent = shaking ? "Stop shaking" : "Start shaking";
+      $("modeHint").textContent = "Shakes the ground back and forth at a steady rhythm.";
+    } else {
+      goBtn.textContent = "Fire pulse";
+      $("modeHint").textContent = "One single-cycle jolt, like a near-fault velocity pulse.";
+    }
+  }
+
+  function setMode(mode) {
+    s.mode = mode;
+    shaking = false;
+    pulseT0 = null;
+    setModeUI();
+    updateText();
+  }
+
+  function go() {
+    peak = 0;
+    if (s.mode === "free") {
+      u = 0.06; v = 0;
+    } else if (s.mode === "harmonic") {
+      shaking = !shaking;
+      if (shaking) shakeT0 = t;
+    } else {
+      pulseT0 = t;
+    }
+    setModeUI();
+  }
+
+  function reset() {
+    u = 0; v = 0; peak = 0; shaking = false; pulseT0 = null;
+    hist = []; yMax = 0.02;
+    setModeUI();
+  }
+
+  massIn.addEventListener("input", function () { s.m = +massIn.value; updateText(); });
+  stiffIn.addEventListener("input", function () { s.k = +stiffIn.value; updateText(); });
+  dampIn.addEventListener("input", function () { s.zeta = +dampIn.value / 100; updateText(); });
+  teIn.addEventListener("input", function () { s.Te = +teIn.value; updateText(); });
+  $("matchBtn").addEventListener("click", function () {
+    s.Te = clamp(period(), 0.1, 5);
+    teIn.value = s.Te.toFixed(2);
+    updateText();
+  });
+  document.querySelectorAll(".seg button").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.getAttribute("data-mode")); });
+  });
+  goBtn.addEventListener("click", go);
+  $("resetBtn").addEventListener("click", reset);
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    var n = Math.max(1, Math.ceil(dt / 0.004));
+    var h = dt / n;
+    for (var i = 0; i < n; i++) step(h);
+
+    hist.push({ t: t, u: u });
+    while (hist.length && hist[0].t < t - WINDOW) hist.shift();
+
+    drawFrame();
+    drawPlot();
+    updateText();
+    requestAnimationFrame(frame);
+  }
+
+  setModeUI();
+  updateText();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
